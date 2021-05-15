@@ -3,6 +3,8 @@ import werkzeug
 werkzeug.cached_property = werkzeug.utils.cached_property
 from flask_restplus import Api, Resource, fields
 from werkzeug.middleware.proxy_fix import ProxyFix
+from datetime import datetime, date
+import requests
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app)
@@ -15,9 +17,11 @@ ns = api.namespace('todos', description='TODO operations')
 todo = api.model('Todo', {
     'id': fields.Integer(readonly=True, description='The task unique identifier'),
     'task': fields.String(required=True, description='The task details'),
-    'due by': fields.DateTime(required=True, description='Date when this task should be finished')
+    'due by': fields.Date(required=True, description='Date when this task should be finished'),
+    'status': fields.String(description='Current status of task', default='Not Started')
 })
 
+stat_val = ['Not Started', 'In Progress', 'Finished']
 
 class TodoDAO(object):
     def __init__(self):
@@ -30,24 +34,52 @@ class TodoDAO(object):
                 return todo
         api.abort(404, "Todo {} doesn't exist".format(id))
 
-    def get_date(self, date):
+    def get_due(self, due):
         t=[]
         f=0
         for todo in self.todos:
-            if todo['due by'] == date:
+            if due in todo['due by']:
                 f=1
                 t.append(todo)
         if f==1:
             return t
-        api.abort(404, "Todo due on {} doesn't exist".format(date))
+        api.abort(404, "Todo due on {} doesn't exist".format(due))
+
+    def get_overdue(self):
+        t=[]
+        f=0
+        d1=date.today()
+        for todo in self.todos:
+            d2=datetime.strptime(todo['due by'],'%Y-%m-%d').date()
+            if d2<d1 and todo['status']!='Finished':
+                f=1
+                t.append(todo)
+        if f==1:
+            return t
+        api.abort(404, "Overdue todos don't exist")
+        
+    def get_finished(self):
+        t=[]
+        f=0
+        for todo in self.todos:
+            if todo['status']=='Finished':
+                f=1
+                t.append(todo)
+        if f==1:
+            return t
+        api.abort(404, "Completed/Finished todos don't exist")
 
     def create(self, data):
+        if 'status' in data.keys() and data['status'] not in stat_val:
+            return
         todo = data
         todo['id'] = self.counter = self.counter + 1
         self.todos.append(todo)
         return todo
 
     def update(self, id, data):
+        if 'status' in data.keys() and data['status'] not in stat_val:
+            return
         todo = self.get(id)
         todo.update(data)
         return todo
@@ -58,10 +90,9 @@ class TodoDAO(object):
 
 
 DAO = TodoDAO()
-DAO.create({'task': 'Build an API', 'due by': '2021-06-15'})
-DAO.create({'task': '?????', 'due by': '2021-10-10'})
-DAO.create({'task': 'profit!', 'due by': '2021-08-20'})
-
+DAO.create({'task': 'Build an API', 'due by': '2021-02-15'})
+DAO.create({'task': '?????', 'due by': '2021-10-10', 'status': 'Finished'})
+DAO.create({'task': 'profit!', 'due by': '2021-08-20', 'status': 'In Progress'})
 
 @ns.route('/')
 class TodoList(Resource):
@@ -79,6 +110,34 @@ class TodoList(Resource):
         '''Create a new task'''
         return DAO.create(api.payload), 201
 
+@ns.route('/<string:due_date>')
+@ns.response(404, 'Todo not found')
+@ns.param('due_date', 'The due by date of task')
+class TodoDue(Resource):
+    '''Shows tasks due on a particular date'''
+    @ns.doc('get_due_todos')
+    @ns.marshal_list_with(todo)
+    def get(self, due_date):
+        '''List all tasks due on the given date'''
+        return DAO.get_due(due_date)
+
+@ns.route('/overdue')
+class TodoOverdue(Resource):
+    '''Lists overdue tasks'''
+    @ns.doc('get_overdue_todos')
+    @ns.marshal_list_with(todo)
+    def get(self):
+        '''List all overdue tasks'''
+        return DAO.get_overdue()
+
+@ns.route('/finished')
+class TodoFinished(Resource):
+    '''Lists completed/finished tasks'''
+    @ns.doc('get_finished_todos')
+    @ns.marshal_list_with(todo)
+    def get(self):
+        '''List all finished tasks'''
+        return DAO.get_finished()
 
 @ns.route('/<int:id>')
 @ns.response(404, 'Todo not found')
@@ -88,14 +147,8 @@ class Todo(Resource):
     @ns.doc('get_todo')
     @ns.marshal_with(todo)
     def get(self, id):
-        '''Fetch a given resource'''
+        '''List a task given its identifier'''
         return DAO.get(id)
-
-    @ns.doc('get_due_todo')
-    @ns.marshal_with(todo)
-    def get_date(self, date):
-        '''Fetch resource due on given date'''
-        return DAO.get_date(date)
 
     @ns.doc('delete_todo')
     @ns.response(204, 'Todo deleted')
@@ -109,7 +162,6 @@ class Todo(Resource):
     def put(self, id):
         '''Update a task given its identifier'''
         return DAO.update(id, api.payload)
-
 
 if __name__ == '__main__':
     app.run(debug=True)
