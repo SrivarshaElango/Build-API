@@ -1,6 +1,8 @@
 from flask import Flask
+import werkzeug
+werkzeug.cached_property = werkzeug.utils.cached_property
 from flask_restplus import Api, Resource, fields
-from werkzeug.contrib.fixers import ProxyFix
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app)
@@ -12,7 +14,8 @@ ns = api.namespace('todos', description='TODO operations')
 
 todo = api.model('Todo', {
     'id': fields.Integer(readonly=True, description='The task unique identifier'),
-    'task': fields.String(required=True, description='The task details')
+    'task': fields.String(required=True, description='The task details'),
+    'due by': fields.DateTime(required=True, description='Date when this task should be finished')
 })
 
 
@@ -26,6 +29,17 @@ class TodoDAO(object):
             if todo['id'] == id:
                 return todo
         api.abort(404, "Todo {} doesn't exist".format(id))
+
+    def get_date(self, date):
+        t=[]
+        f=0
+        for todo in self.todos:
+            if todo['due by'] == date:
+                f=1
+                t.append(todo)
+        if f==1:
+            return t
+        api.abort(404, "Todo due on {} doesn't exist".format(date))
 
     def create(self, data):
         todo = data
@@ -44,9 +58,9 @@ class TodoDAO(object):
 
 
 DAO = TodoDAO()
-DAO.create({'task': 'Build an API'})
-DAO.create({'task': '?????'})
-DAO.create({'task': 'profit!'})
+DAO.create({'task': 'Build an API', 'due by': '2021-06-15'})
+DAO.create({'task': '?????', 'due by': '2021-10-10'})
+DAO.create({'task': 'profit!', 'due by': '2021-08-20'})
 
 
 @ns.route('/')
@@ -76,6 +90,12 @@ class Todo(Resource):
     def get(self, id):
         '''Fetch a given resource'''
         return DAO.get(id)
+
+    @ns.doc('get_due_todo')
+    @ns.marshal_with(todo)
+    def get_date(self, date):
+        '''Fetch resource due on given date'''
+        return DAO.get_date(date)
 
     @ns.doc('delete_todo')
     @ns.response(204, 'Todo deleted')
