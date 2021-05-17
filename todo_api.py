@@ -5,6 +5,14 @@ from flask_restplus import Api, Resource, fields
 from werkzeug.middleware.proxy_fix import ProxyFix
 from datetime import datetime, date
 import requests
+import cx_Oracle
+
+dsn_tns = cx_Oracle.makedsn('DESKTOP-DVJIFEV', '1521', service_name='XE')
+conn = cx_Oracle.connect(user=r'SYSTEM', password='O4oracle', dsn=dsn_tns)
+
+c=conn.cursor()
+c.execute('drop table Tasks')
+c.execute('create table Tasks (id number(2), task varchar2(20), due_by date, status varchar2(20))')
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app)
@@ -75,6 +83,10 @@ class TodoDAO(object):
         todo = data
         todo['id'] = self.counter = self.counter + 1
         self.todos.append(todo)
+        d=list(todo.values())
+        d=[d[-1]]+d[:-1]
+        #print(d)
+        c.execute("insert into Tasks values (:id,:task,to_date(:due_by, 'YYYY-MM-DD'),:status)",d)
         return todo
 
     def update(self, id, data):
@@ -90,7 +102,7 @@ class TodoDAO(object):
 
 
 DAO = TodoDAO()
-DAO.create({'task': 'Build an API', 'due by': '2021-02-15'})
+DAO.create({'task': 'Build an API', 'due by': '2021-02-15', 'status': 'Not Started'})
 DAO.create({'task': '?????', 'due by': '2021-10-10', 'status': 'Finished'})
 DAO.create({'task': 'profit!', 'due by': '2021-08-20', 'status': 'In Progress'})
 
@@ -162,6 +174,13 @@ class Todo(Resource):
     def put(self, id):
         '''Update a task given its identifier'''
         return DAO.update(id, api.payload)
+
+print('Table contents : ')
+print('Id\t Task\t\t Due_Date\t Status')
+c.execute('select * from Tasks')
+for row in c:
+	print(row[0], '\t', row[1], ' \t', row[2], '\t', row[3])
+conn.close()
 
 if __name__ == '__main__':
     app.run(debug=True)
