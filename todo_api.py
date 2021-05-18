@@ -12,7 +12,7 @@ conn = cx_Oracle.connect(user=r'SYSTEM', password='O4oracle', dsn=dsn_tns)
 
 c=conn.cursor()
 c.execute('drop table Tasks')
-c.execute('create table Tasks (id number(2), task varchar2(20), due_by varchar2(10), status varchar2(20))')
+c.execute('create table Tasks (id number(2), task varchar2(20), due_by date, status varchar2(20))')
 c.execute('commit')
 conn.close()
 
